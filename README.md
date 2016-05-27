@@ -1,2 +1,2 @@
 # THREE.JS.XfileLoader
-HREE.JS.XfileLoader
+THREE.JS.XfileLoader
