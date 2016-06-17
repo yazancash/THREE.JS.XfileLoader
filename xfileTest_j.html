@@ -1,0 +1,268 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>three.js webgl - X-File loader</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+
+    <style>
+        body {
+            font-family: Monospace;
+            background-color: #000;
+            color: #fff;
+            margin: 0px;
+            overflow: hidden;
+        }
+
+        #info {
+            color: #fff;
+            position: absolute;
+            top: 10px;
+            width: 100%;
+            text-align: center;
+            z-index: 100;
+            display: block;
+        }
+
+            #info a, .button {
+                color: #f00;
+                font-weight: bold;
+                text-decoration: underline;
+                cursor: pointer;
+            }
+    </style>
+</head>
+
+<body>
+
+    <div style="width:100%; text-align: right;">
+        フレーム：<input type="range" id="frameNum" value="0" min="0" max="200" />
+        <input type="button" value="ボーンツリー" onclick="togleTreeVis();">
+    </div>
+    <div id="canvase3d"></div>  <!-- 描画領域のためのdiv要素を配置 -->
+
+    <div id="dialog_tree" style="width:90%; height:90%;display:none;">
+        <ul id="bonetree" class="treeview"></ul>
+    </div>
+
+
+    <script src="js/three.js"></script>
+
+    <script src="js/controls/OrbitControls.js"></script>
+
+    <script src="js/loaders/thrXfileLoader.js"></script>
+    <script src="js/objectSetter/obj_Jaorm.js"></script>
+
+    <script src="js/Detector.js"></script>
+    <script src="js/libs/stats.min.js"></script>
+
+    <script>
+
+        function togleTreeVis() {
+            document.getElementById("dialog_tree").style.display = document.getElementById("dialog_tree").style.display == 'block' ? 'none' : 'block';
+        }
+
+        var StringBuffer = function (string) {
+            this.buffer = [];
+            this.append = function (string) { this.buffer.push(string); return this; };
+            this.toString = function () { return this.buffer.join(''); };
+            if (string) { this.append(string); }
+        };
+
+        if (!Detector.webgl) Detector.addGetWebGLMessage();
+        var container, stats, controls;
+        var camera, scene, renderer;
+        var clock = new THREE.Clock();
+        var mixers = [];
+
+        var Texloader = null;
+
+        var ParentList = null;
+
+        var skeletonHelper = null;
+
+        var Models = new Array();
+
+        var animateInf = null;
+
+        var DashAnime = null;
+
+        var handR_parentBone = null;
+        var handL_parentBone = null;
+
+        var d = new Date();
+        var LastDateTime = null;
+
+        init();
+
+        var animateObj = null;
+
+        function init() {
+
+            LastDateTime = Date.now();
+
+            XfileLoader_IsPosZReverse = true;
+
+            container = document.createElement('canvase3d');
+            document.body.appendChild(container);
+            camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 1, 2000);
+            scene = new THREE.Scene();
+            scene.add(new THREE.AmbientLight(0x999999));
+            // grid
+            var gridHelper = new THREE.GridHelper(14, 1, 0x303030, 0x303030);
+            gridHelper.position.set(0, -0.04, 0);
+            scene.add(gridHelper);
+            // stats
+            stats = new Stats();
+            container.appendChild(stats.dom);
+            // model
+            var manager = new THREE.LoadingManager();
+            manager.onProgress = function (item, loaded, total) {
+                console.log(item, loaded, total);
+            };
+            var onProgress = function (xhr) {
+                if (xhr.lengthComputable) {
+                    var percentComplete = xhr.loaded / xhr.total * 100;
+                    console.log(Math.round(percentComplete, 2) + '% downloaded');
+                }
+            };
+            var onError = function (xhr) {
+            };
+            var loader = new XfileLoader(manager);
+            Texloader = new THREE.TextureLoader();
+            //モデルを読み込む
+            //loader.load('content/HF105_Born2.x', function (object) {
+            loader.load('content/Jaorm_4_2.x', function (object) {
+                for (var i = 0; i < object.FrameInfo.length; i++) {
+                    Models.push(object.FrameInfo[i]);
+                    scene.add(object.FrameInfo[i]);
+                }
+                var refz = new THREE.Matrix4();
+                refz.elements[10] = -1;
+                Models[0].applyMatrix(refz);
+                /////ボーンの内容を出力する
+                {
+
+                    skeletonHelper = new THREE.SkeletonHelper(object.FrameInfo[0]);
+                    skeletonHelper.material.linewidth = 2;
+                    scene.add(skeletonHelper);
+
+                    ParentList = new StringBuffer();
+                    //ParentList.append('<ul id=\'bonetree\' class=\'treeview\'>');
+                    var keys = Object.keys(object.FrameInfo_Raw);
+                    putChildrenName(object.FrameInfo_Raw[keys[0]], object);
+                    //ParentList.append('</ul>');
+                    var s = ParentList.toString();
+                    document.getElementById("bonetree").innerHTML = ParentList.toString();
+                }
+
+                ///連動オブジェクトの位置をセットする
+                for (var i = 0; i < Models[0].skeleton.bones.length; i++ )
+                {
+                    if (Models[0].skeleton.bones[i].name.indexOf('Hand_Wpn_2_R') > -1 ) {
+                        handR_parentBone = Models[0].skeleton.bones[i];
+                    }
+                    if (Models[0].skeleton.bones[i].name.indexOf('Hand_Nigiri_L') > -1) {
+                        handL_parentBone = Models[0].skeleton.bones[i];
+                    }
+                }
+           
+                //アニメーションコントローラーをセット＆作成する
+                keys = Object.keys(object.AnimationSetInfo);
+                animateObj = new XAnimationObject();              
+                animateObj.set(object.FrameInfo[0], object.AnimationSetInfo[keys[0]], keys[0]);
+                //animateObj.createAnimation("kiri_1", 2000, 2160, true);
+                animateObj.createAnimation("kiri_1", keys[0], 1500, 1550, true);
+                animateObj.beginAnimation("kiri_1");       
+
+                object = null;
+            }, onProgress, onError);
+
+            renderer = new THREE.WebGLRenderer();
+            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setClearColor(0x666666);
+            container.appendChild(renderer.domElement);
+            // controls, camera
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.target.set(0, 12, 0);
+            camera.position.set(2, 18, 28);
+            camera.up.set(0, 1, 0);
+            ///////////
+
+            var light = new THREE.DirectionalLight(0xffffff, 2);
+            light.position.set(1, 1, 1).normalize();
+            scene.add(light);
+
+            light = new THREE.DirectionalLight(0xffffff);
+            light.position.set(-1, -1, -1).normalize();
+            scene.add(light);
+
+            controls.update();
+            window.addEventListener('resize', onWindowResize, false);
+            animate();
+
+        }
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+        //
+        function animate() {
+         
+            requestAnimationFrame(animate);
+            var nowTime = Date.now();
+            var dulTime = nowTime - LastDateTime;
+   
+            LastDateTime = nowTime;
+
+            if (Models != null && Models.length > 0) {
+
+                var nowNum = document.getElementById("frameNum").value;
+                nowNum = parseInt(nowNum, 10);
+
+                animateObj.update(dulTime);
+                if (handL_parentBone != null) {
+                    Models[1].matrix = new THREE.Matrix4();
+                    Models[1].applyMatrix(handL_parentBone.matrixWorld);
+                }
+                if (handR_parentBone != null) {
+                    Models[2].matrix = new THREE.Matrix4();
+                    Models[2].applyMatrix(handR_parentBone.matrixWorld);
+                }
+           
+                //Models[0].updateMatrix();
+                if (skeletonHelper != null) { skeletonHelper.update(); }
+            }
+
+            stats.update();
+            render();
+        }
+        function render() {
+            renderer.render(scene, camera);
+        }
+
+        ///  Output Bone Tree
+        function putChildrenName(_xinf, baseObj) {
+            //ParentList = new StringBuffer();
+            ParentList.append('<li class=\'closed\'> <span>');
+            ParentList.append(_xinf.FrameName);
+          
+            ParentList.append('</span>');
+            if (_xinf.children.length > 0) {
+                ParentList.append('<ul >');
+                for (var i = 0; i < _xinf.children.length ; i++) {
+                    ParentList.append(putChildrenName(baseObj.FrameInfo_Raw[_xinf.children[i]], baseObj));
+                }
+                ParentList.append('</ul >');
+            }
+            ParentList.append('</li>');
+            //return sb.toString();
+        }
+
+
+    </script>
+
+</body>
+</html>

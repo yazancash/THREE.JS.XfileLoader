@@ -4,6 +4,7 @@
     <title>three.js webgl - X-File loader</title>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+
     <style>
         body {
             font-family: Monospace;
@@ -34,7 +35,14 @@
 
 <body>
 
+    <div style="width:100%; text-align: right;">
+        <input type="button" value="ボーンツリー" onclick="togleTreeVis();">
+    </div>
     <div id="canvase3d"></div>  <!-- 描画領域のためのdiv要素を配置 -->
+
+    <div id="dialog_tree" style="width:90%; height:90%;display:block;">
+        <ul id="bonetree" class="treeview"></ul>
+    </div>
 
 
     <script src="js/three.js"></script>
@@ -42,129 +50,195 @@
     <script src="js/controls/OrbitControls.js"></script>
 
     <script src="js/loaders/thrXfileLoader.js"></script>
+    <script src="js/objectSetter/obj_Jaorm.js"></script>
 
     <script src="js/Detector.js"></script>
     <script src="js/libs/stats.min.js"></script>
 
     <script>
-			if ( ! Detector.webgl ) Detector.addGetWebGLMessage();
-			var container, stats, controls;
-			var camera, scene, renderer;
-			var clock = new THREE.Clock();
-			var mixers = [];
 
-			var Texloader = null;
+        function togleTreeVis() {
+            document.getElementById("dialog_tree").style.display = document.getElementById("dialog_tree").style.display == 'block' ? 'none' : 'block';
+        }
 
-			init();
-			function init() {
-			    XfileLoader_IsUvYReverse = true;
+        var StringBuffer = function (string) {
+            this.buffer = [];
+            this.append = function (string) { this.buffer.push(string); return this; };
+            this.toString = function () { return this.buffer.join(''); };
+            if (string) { this.append(string); }
+        };
 
-			    container = document.createElement('canvase3d');
-				document.body.appendChild( container );
-				camera = new THREE.PerspectiveCamera( 45, window.innerWidth / window.innerHeight, 1, 2000 );
-				scene = new THREE.Scene();
-				scene.add(new THREE.AmbientLight(0x999999));
-				// grid
-				var gridHelper = new THREE.GridHelper( 14, 1, 0x303030, 0x303030 );
-				gridHelper.position.set( 0, - 0.04, 0 );
-				scene.add( gridHelper );
-				// stats
-				stats = new Stats();
-				container.appendChild( stats.dom );
-				// model
-				var manager = new THREE.LoadingManager();
-				manager.onProgress = function( item, loaded, total ) {
-					console.log( item, loaded, total );
-				};
-				var onProgress = function( xhr ) {
-					if ( xhr.lengthComputable ) {
-						var percentComplete = xhr.loaded / xhr.total * 100;
-						console.log( Math.round( percentComplete, 2 ) + '% downloaded' );
-					}
-				};
-				var onError = function( xhr ) {
-				};
-				var loader = new XfileLoader(manager);
-				Texloader = new THREE.TextureLoader();
-                //モデルを読み込む
-			    loader.load('content/HF105_Born2_nb.x', function (object) {
-				    for (var i = 0; i < object.Meshes.length; i++) {
-                        /*
-				        object.Meshes[i].traverse(function (child) {
-				            if (child instanceof THREE.Mesh) {
-				                // pass
-				            }
-				            if (child instanceof THREE.SkinnedMesh) {
-				                if (child.geometry.animations !== undefined || child.geometry.morphAnimations !== undefined) {
-				                    child.mixer = new THREE.AnimationMixer(child);
-				                    mixers.push(child.mixer);
-				                    //アニメーションを割り当てる
-				                    var action = child.mixer.clipAction(child.geometry.animations[0]);
-				                    //開始する
-				                    action.play();
-				                }
-				            } 
-				        });
-                        */
-                       /*
-				        this.TextureInfs = new Array();
-				        for (var m = 0; m < object.TextureFiles.length; m++)
-				        {
-				            //var texture = new THREE.TextureLoader().load(object.TextureFiles[m].Url);
-				            var texloader = new THREE.TextureLoader(manager);
-				            texloader.load(object.TextureFiles[m].Url, function (object2) {
-				                object.Meshes[i].materials[object.TextureFiles[m].MatIndex] = new THREE.MeshPhongMaterial({ color: 0xffffff, map: object2 });
-				            }, onProgress, onError);
-				            break;
-				        }
-                        */
-				        //読み込み＆初期化が完了したモデルオブジェクトをシーンに追加する
-				        scene.add(object.Meshes[i]);
-				    }
-                
-				}, onProgress, onError );
-				renderer = new THREE.WebGLRenderer();
-				renderer.setPixelRatio( window.devicePixelRatio );
-				renderer.setSize( window.innerWidth, window.innerHeight );
-				renderer.setClearColor( 0x666666 );
-				container.appendChild( renderer.domElement );
-				// controls, camera
-				controls = new THREE.OrbitControls( camera, renderer.domElement );
-				controls.target.set( 0, 12, 0 );
-				camera.position.set(2, 18, 28);
-				camera.up.set(0, 1, 0);
-                ///////////
-				var light = new THREE.DirectionalLight(0xffffff, 2);
-				light.position.set(1, 1, 1).normalize();
-				scene.add(light);
+        if (!Detector.webgl) Detector.addGetWebGLMessage();
+        var container, stats, controls;
+        var camera, scene, renderer;
+        var clock = new THREE.Clock();
+        var mixers = [];
 
-				light = new THREE.DirectionalLight(0xffffff);
-				light.position.set(-1, -1, -1).normalize();
-				scene.add(light);
+        var Texloader = null;
 
-				controls.update();
-				window.addEventListener( 'resize', onWindowResize, false );
-				animate();
-			}
-			function onWindowResize() {
-				camera.aspect = window.innerWidth / window.innerHeight;
-				camera.updateProjectionMatrix();
-				renderer.setSize( window.innerWidth, window.innerHeight );
-			}
-			//
-			function animate() {
-				requestAnimationFrame( animate );
-				if ( mixers.length > 0 ) {
-					for ( var i = 0; i < mixers.length; i ++ ) {
-						mixers[ i ].update( clock.getDelta() );
-					}
-				}
-				stats.update();
-				render();
-			}
-			function render() {
-				renderer.render( scene, camera );
-			}
+        var ParentList = null;
+
+        var skeletonHelper = null;
+
+        var Models = new Array();
+
+        var animateInf = null;
+
+        init();
+        function init() {
+            XfileLoader_IsUvYReverse = true;
+
+            container = document.createElement('canvase3d');
+            document.body.appendChild(container);
+            camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 1, 2000);
+            scene = new THREE.Scene();
+            scene.add(new THREE.AmbientLight(0x999999));
+            // grid
+            var gridHelper = new THREE.GridHelper(14, 1, 0x303030, 0x303030);
+            gridHelper.position.set(0, -0.04, 0);
+            scene.add(gridHelper);
+            // stats
+            stats = new Stats();
+            container.appendChild(stats.dom);
+            // model
+            var manager = new THREE.LoadingManager();
+            manager.onProgress = function (item, loaded, total) {
+                console.log(item, loaded, total);
+            };
+            var onProgress = function (xhr) {
+                if (xhr.lengthComputable) {
+                    var percentComplete = xhr.loaded / xhr.total * 100;
+                    console.log(Math.round(percentComplete, 2) + '% downloaded');
+                }
+            };
+            var onError = function (xhr) {
+            };
+            var loader = new XfileLoader(manager);
+            Texloader = new THREE.TextureLoader();
+            //モデルを読み込む
+            loader.load('content/HF105_Born2.x', function (object) {
+
+                for (var i = 0; i < object.FrameInfo.length; i++) {
+                    Models.push(object.FrameInfo[i]);
+                }
+                scene.add(object.FrameInfo[0]);
+
+                /////ボーンの内容を出力する
+                ParentList = new StringBuffer();
+                //ParentList.append('<ul id=\'bonetree\' class=\'treeview\'>');
+                var keys = Object.keys(object.FrameInfo_Raw);
+                putChildrenName(object.FrameInfo_Raw[keys[0]], object);
+                //ParentList.append('</ul>');
+                var s = ParentList.toString();
+                document.getElementById("bonetree").innerHTML = ParentList.toString();
+
+                animateInf = object.AnimationInfo_Raw;
+                object = null;
+
+            }, onProgress, onError);
+            renderer = new THREE.WebGLRenderer();
+            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setClearColor(0x666666);
+            container.appendChild(renderer.domElement);
+            // controls, camera
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.target.set(0, 12, 0);
+            camera.position.set(2, 18, 28);
+            camera.up.set(0, 1, 0);
+            ///////////
+            var light = new THREE.DirectionalLight(0xffffff, 2);
+            light.position.set(1, 1, 1).normalize();
+            scene.add(light);
+
+            light = new THREE.DirectionalLight(0xffffff);
+            light.position.set(-1, -1, -1).normalize();
+            scene.add(light);
+
+            controls.update();
+            window.addEventListener('resize', onWindowResize, false);
+            animate();
+
+        }
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+        //
+        function animate() {
+            requestAnimationFrame(animate);
+            /*
+            if ( mixers.length > 0 ) {
+                for ( var i = 0; i < mixers.length; i ++ ) {
+                    mixers[ i ].update( clock.getDelta() );
+                }
+            }
+            */
+
+            if (Models != null && Models.length > 0) {
+                var time = Date.now() * 0.001;
+                for (var i = 0 ; i < Models.length; i++) {
+                    if (Models[i] instanceof THREE.SkinnedMesh === true) {
+                        //*Models[i].skeleton.bones[2].rotation.y = Math.sin(time) * 2;
+                        keys = Object.keys(animateInf);
+                        for (var i = 0; i < keys.length; i++) {
+                            if (animateInf[keys[i]] != null) {
+                                for (var m = 0; m < Models[0].skeleton.bones.length; m++) {
+                                    if (Models[0].skeleton.bones[m].name == animateInf[keys[i]].BoneName) {
+
+                                        var nowSetKey = 10;
+                                        if (animateInf[keys[i]].KeyFrames.length <= nowSetKey) { continue; }
+
+                                        Models[0].skeleton.bones[m].matrix = new THREE.Matrix4();
+                                        Models[0].skeleton.bones[m].applyMatrix(animateInf[keys[i]].KeyFrames[nowSetKey].Matrix);
+                                        Models[0].skeleton.bones[m].updateMatrix();
+                                        Models[0].skeleton.bones[m].matrixWorldNeedsUpdate = true;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                //Models[0].skeleton.bones[2].rotation.y = Math.sin(time) * 2;
+                //Models[0].skeleton.bones[5].rotation.y = Math.sin(time) * 2;
+
+                //Models[0].skeleton.bones[m].rotation.x = quaternion.x;
+                Models[0].updateMatrix();
+                if (skeletonHelper != null) { skeletonHelper.update(); }
+            }
+
+            stats.update();
+            render();
+        }
+        function render() {
+            renderer.render(scene, camera);
+        }
+
+        function putChildrenName(_xinf, baseObj) {
+            //ParentList = new StringBuffer();
+            ParentList.append('<li class=\'closed\'> <span>');
+            ParentList.append(_xinf.FrameName);
+            ParentList.append('</span>');
+            if (_xinf.children.length > 0) {
+                ParentList.append('<ul >');
+                for (var i = 0; i < _xinf.children.length ; i++) {
+                    ParentList.append(putChildrenName(baseObj.FrameInfo_Raw[_xinf.children[i]], baseObj));
+                }
+                ParentList.append('</ul >');
+            }
+            ParentList.append('</li>');
+            //return sb.toString();
+        }
+
+        function getInvers(_bone, _mx) {
+            if (_bone.parent != null) {
+
+            }
+        }
+
     </script>
 
 </body>
