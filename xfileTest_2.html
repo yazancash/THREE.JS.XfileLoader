@@ -35,14 +35,14 @@
 
 <body>
 
-    <div style="width:100%; text-align: right;">      
-        <input type="button" value="ボーンツリー表示" onclick="togleTreeVis();"> 
-        
+    <div style="width:100%; text-align: right;">
+        <input type="button" value="ボーンツリー表示" onclick="togleTreeVis();">
+
         <a href="https://github.com/adrs2002/THREE.JS.XfileLoader"> THREE.JS.XfileLoader </a>
     </div>
     <div id="canvase3d"></div>  <!-- 描画領域のためのdiv要素を配置 -->
 
-    <div id="dialog_tree" style="width:90%; height:90%;display:none;">
+    <div id="dialog_tree" style="width:90%; height:90%;display:block;">
         <ul id="bonetree" class="treeview"></ul>
     </div>
 
@@ -83,6 +83,7 @@
         var skeletonHelper = null;
 
         var Models = new Array();
+        var WpnModel = {};
 
         var animateInf = null;
 
@@ -91,6 +92,9 @@
         var handR_parentBone = null;
         var handL_parentBone = null;
 
+        var sholR_parentBone = null;
+        var sholL_parentBone = null;
+
         var d = new Date();
         var LastDateTime = null;
 
@@ -98,7 +102,11 @@
 
         var animateObj = null;
 
+        var isSubObjectLoad = false;
+
         function init() {
+
+            XfileLoader_IsUvYReverse = true;
 
             LastDateTime = Date.now();
 
@@ -132,52 +140,49 @@
             var loader = new XfileLoader(manager);
             Texloader = new THREE.TextureLoader();
             //モデルを読み込む
+
+            //マウントする子オブジェクトのロード
+            //左右反転の必要がある＆元からポリゴン数が少ないため、両面ポリ化する
+            loader.load('content/wpn/Rw_Bmlf_2.x', function (object) {
+                WpnModel["Rw_Bmlf_2"] = object.FrameInfo[0];
+                scene.add(object.FrameInfo[0]);
+            }, onProgress, onError);
+
+            loader.load('content/wpn/BMS_3.x', function (object) {
+                WpnModel["BMS_3"] = object.FrameInfo[0];
+                scene.add(object.FrameInfo[0]);
+            }, onProgress, onError);
+
+            loader.load('content/wpn/BBC_1.x', function (object) {
+                WpnModel["BBC_1"] = object.FrameInfo[0];
+                scene.add(object.FrameInfo[0]);
+            }, onProgress, onError);
+
+
             //loader.load('content/HF105_Born2.x', function (object) {
-            loader.load('content/Jaorm_4_2.x', function (object) {
+            loader.load('content/SSR06_Born2.x', function (object) {
                 for (var i = 0; i < object.FrameInfo.length; i++) {
                     Models.push(object.FrameInfo[i]);
-                    scene.add(object.FrameInfo[i]);
+                    scene.add(Models[i]);
                 }
+
+                //一部ソフトウェアのZ位置解釈が逆になることに対応
                 var refz = new THREE.Matrix4();
                 refz.elements[10] = -1;
                 Models[0].applyMatrix(refz);
-                /////ボーンの内容を出力する
-                {
-
-                    skeletonHelper = new THREE.SkeletonHelper(object.FrameInfo[0]);
-                    skeletonHelper.material.linewidth = 2;
-                    scene.add(skeletonHelper);
-
-                    ParentList = new StringBuffer();
-                    //ParentList.append('<ul id=\'bonetree\' class=\'treeview\'>');
-                    var keys = Object.keys(object.FrameInfo_Raw);
-                    putChildrenName(object.FrameInfo_Raw[keys[0]], object);
-                    //ParentList.append('</ul>');
-                    var s = ParentList.toString();
-                    document.getElementById("bonetree").innerHTML = ParentList.toString();
-                }
-
-                ///連動オブジェクトの位置をセットする
-                for (var i = 0; i < Models[0].skeleton.bones.length; i++ )
-                {
-                    if (Models[0].skeleton.bones[i].name.indexOf('Hand_Wpn_2_R') > -1 ) {
-                        handR_parentBone = Models[0].skeleton.bones[i];
-                    }
-                    if (Models[0].skeleton.bones[i].name.indexOf('Hand_Nigiri_L') > -1) {
-                        handL_parentBone = Models[0].skeleton.bones[i];
-                    }
-                }
-           
+                Models[0].position.x = 10;
+   
                 //アニメーションコントローラーをセット＆作成する
                 keys = Object.keys(object.AnimationSetInfo);
-                animateObj = new XAnimationObject();              
+                animateObj = new XAnimationObject();
                 animateObj.set(object.FrameInfo[0], object.AnimationSetInfo[keys[0]], keys[0]);
                 //animateObj.createAnimation("kiri_1", 2000, 2160, true);
-                animateObj.createAnimation("kiri_1", keys[0], 1500, 1550, true);
-                animateObj.beginAnimation("kiri_1");       
+                animateObj.createAnimation("wark", keys[0], 50, 82, true);
+                animateObj.beginAnimation("wark");
 
                 object = null;
             }, onProgress, onError);
+
 
             renderer = new THREE.WebGLRenderer();
             renderer.setPixelRatio(window.devicePixelRatio);
@@ -191,12 +196,12 @@
             camera.up.set(0, 1, 0);
             ///////////
 
-            var light = new THREE.DirectionalLight(0xffffff, 2);
-            light.position.set(1, 1, 1).normalize();
+            var light = new THREE.DirectionalLight(0xeeeeff, 2);
+            light.position.set(10, -100, 1).normalize();
             scene.add(light);
 
-            light = new THREE.DirectionalLight(0xffffff);
-            light.position.set(-1, -1, -1).normalize();
+            light = new THREE.DirectionalLight(0xaa5555);
+            light.position.set(-1, 1, -1).normalize();
             scene.add(light);
 
             controls.update();
@@ -211,54 +216,102 @@
         }
         //
         function animate() {
-         
+
             requestAnimationFrame(animate);
             var nowTime = Date.now();
             var dulTime = nowTime - LastDateTime;
-   
-            LastDateTime = nowTime;
 
-            if (Models != null && Models.length > 0) {
+            if (WpnModel != null && Models != null && Models.length > 0) {
 
-                animateObj.update(dulTime);
-                if (handL_parentBone != null) {
-                    Models[1].matrix = new THREE.Matrix4();
-                    Models[1].applyMatrix(handL_parentBone.matrixWorld);
+                LastDateTime = nowTime;
+
+                if (Models != null && animateObj != null) {
+                    animateObj.update(dulTime);
                 }
-                if (handR_parentBone != null) {
-                    Models[2].matrix = new THREE.Matrix4();
-                    Models[2].applyMatrix(handR_parentBone.matrixWorld);
+
+                var keys = Object.keys(WpnModel);
+
+                if (keys != null && keys.length >= 3) {
+
+                    if (!isSubObjectLoad) {
+
+                        ///連動オブジェクトの位置をセットする
+                        for (var i = 0; i < Models[0].skeleton.bones.length; i++) {
+                            if (Models[0].skeleton.bones[i].name.indexOf('R_Wpn2') > -1) {
+                                handR_parentBone = Models[0].skeleton.bones[i];
+                                handR_parentBone.mounting = WpnModel["Rw_Bmlf_2"];
+
+                                var rolx = new THREE.Matrix4();
+                                rolx.makeRotationX(Math.PI);
+                                handR_parentBone.MountMx = rolx;
+                            }
+                            if (Models[0].skeleton.bones[i].name.indexOf('L_Wpn') > -1) {
+                                handL_parentBone = Models[0].skeleton.bones[i];
+                                var rolx = new THREE.Matrix4();
+                                handL_parentBone.MountMx = rolx;
+                            }
+
+                            if (Models[0].skeleton.bones[i].name.indexOf('SW2_L_mp_2') > -1) {
+                                sholL_parentBone = Models[0].skeleton.bones[i];
+
+                                var rolx = new THREE.Matrix4();
+                                sholL_parentBone.MountMx = rolx;
+
+                                sholL_parentBone.mounting = WpnModel["BBC_1"];
+                            }
+
+                            if (Models[0].skeleton.bones[i].name.indexOf('SW2_R_mp_2') > -1) {
+                                sholR_parentBone = Models[0].skeleton.bones[i];
+
+                                var refz = new THREE.Matrix4();
+                                //sholR_parentBone.MountMx = refz;
+                                refz.elements[0] = -1;
+                                sholR_parentBone.MountMx = refz;
+                                sholR_parentBone.mounting = WpnModel["BMS_3"];
+                            }
+                        }
+
+                        Models[0].mountBones = [handR_parentBone, handL_parentBone, sholL_parentBone, sholR_parentBone];
+
+
+                        isSubObjectLoad = true;
+
+                        for (var m = 0; m < keys.length; m++) {
+                            WpnModel[keys[m]].material.materials[0].side = THREE.DoubleSide;
+                        }
+
+                    }
+
+                    var keys = Object.keys(Models[0].mountBones);
+
+                    for (var m = 0; m < keys.length; m++) {
+                        if (Models[0].mountBones[keys[m]].mounting != null) {
+
+                            Models[0].mountBones[keys[m]].mounting.matrix = new THREE.Matrix4();
+                            Models[0].mountBones[keys[m]].mounting.applyMatrix(Models[0].mountBones[keys[m]].matrixWorld.multiply(Models[0].mountBones[keys[m]].MountMx));
+
+                        }
+                    }
+
                 }
-           
-                //Models[0].updateMatrix();
-                if (skeletonHelper != null) { skeletonHelper.update(); }
             }
+
+            if (skeletonHelper != null) { skeletonHelper.update(); }
 
             stats.update();
             render();
         }
         function render() {
+            //renderer.setFaceCulling(THREE.CullFaceFront, THREE.FrontFaceDirectionCW);
             renderer.render(scene, camera);
         }
 
-        ///  Output Bone Tree
-        function putChildrenName(_xinf, baseObj) {
-            //ParentList = new StringBuffer();
-            ParentList.append('<li class=\'closed\'> <span>');
-            ParentList.append(_xinf.FrameName);
-          
-            ParentList.append('</span>');
-            if (_xinf.children.length > 0) {
-                ParentList.append('<ul >');
-                for (var i = 0; i < _xinf.children.length ; i++) {
-                    ParentList.append(putChildrenName(baseObj.FrameInfo_Raw[_xinf.children[i]], baseObj));
-                }
-                ParentList.append('</ul >');
-            }
-            ParentList.append('</li>');
-            //return sb.toString();
-        }
 
+        function getInvers(_bone, _mx) {
+            if (_bone.parent != null) {
+
+            }
+        }
 
     </script>
 

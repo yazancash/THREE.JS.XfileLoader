@@ -36,8 +36,9 @@
 <body>
 
     <div style="width:100%; text-align: right;">
-        フレーム：<input type="range" id="frameNum" value="0" min="0" max="200" />
-        <input type="button" value="ボーンツリー" onclick="togleTreeVis();">
+        <input type="button" value="ボーンツリー表示" onclick="togleTreeVis();">
+
+        <a href="https://github.com/adrs2002/THREE.JS.XfileLoader"> THREE.JS.XfileLoader </a>
     </div>
     <div id="canvase3d"></div>  <!-- 描画領域のためのdiv要素を配置 -->
 
@@ -196,6 +197,8 @@
             loader.load('content/wpn/Rw_Bmlf_2.x', function (object) {
                 WpnModel["Rw_Bmlf_2"] = object.FrameInfo[0];
                 scene.add(object.FrameInfo[0]);
+
+
             }, onProgress, onError);
             
 
