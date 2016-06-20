@@ -114,7 +114,13 @@ this.XfileLoadMode = {
     Mat_Face_len_Read: 102,
     Mat_Face_Set: 103,
     Mat_Set: 111,
-    Mat_Set_Texture: 112,
+
+    Mat_Set_Texture: 121,
+    Mat_Set_LightTex: 122,
+    Mat_Set_EmissiveTex: 123,
+    Mat_Set_BumpTex: 124,
+    Mat_Set_NormalTex: 125,
+    Mat_Set_EnvTex: 126,
 
     Weit_init: 201,
     Weit_IndexLength: 202,
@@ -479,18 +485,7 @@ XfileLoader.prototype = {
                 var v2 = new THREE.Vector3(NormalVectors[nowID][0], NormalVectors[nowID][1], NormalVectors[nowID][2]);
                 nowID = parseInt(data[2], 10);
                 var v3 = new THREE.Vector3(NormalVectors[nowID][0], NormalVectors[nowID][1], NormalVectors[nowID][2]);
-                //v1.add(v2); v1.add(v3);
-                /*
-                if (XfileLoader_IsPosZReverse) {
-                    nowID = parseInt(data[2], 10);
-                    v1 = new THREE.Vector3(NormalVectors[nowID][0], NormalVectors[nowID][1], NormalVectors[nowID][2]);
-                    nowID = parseInt(data[1], 10);
-                    v2 = new THREE.Vector3(NormalVectors[nowID][0], NormalVectors[nowID][1], NormalVectors[nowID][2]);
-                    nowID = parseInt(data[0], 10);
-                    v3 = new THREE.Vector3(NormalVectors[nowID][0], NormalVectors[nowID][1], NormalVectors[nowID][2]);
-                }
-                */
-                //nowGeometry.faces[nowReaded].normal = v1.normalize();
+       
                 LoadingXdata.FrameInfo_Raw[nowFrameName].Geometry.faces[nowReaded].vertexNormals = [v1, v2, v3];
                 FacesNormal.push(v1.normalize());
                 nowReaded++;
@@ -576,7 +571,7 @@ XfileLoader.prototype = {
             if (line.indexOf("Material ") > -1) {
                 nowReadMode = XfileLoadMode.Mat_Set;
                 matReadLine = 0;
-                nowMat = new THREE.MeshLambertMaterial({ color: Math.random() * 0xffffff });
+                nowMat = new THREE.MeshPhongMaterial({ color: Math.random() * 0xffffff });
 
                 if (XfileLoader_IsPosZReverse) {
                     nowMat.side = THREE.BackSide;
@@ -599,39 +594,63 @@ XfileLoader.prototype = {
                         break;
                     case 2:
                         //power
-
+                        nowMat.shininess = data[0];
                         break;
                     case 3:
                         //Specular
-                        /*
-                        nowMat.color.r = data[0];
-                        nowMat.color.g = data[1];
-                        nowMat.color.b = data[2];
-                        */
+                        nowMat.specular.r = data[0];
+                        nowMat.specular.g = data[1];
+                        nowMat.specular.b = data[2];
                         break;
                     case 4:
                         //Emissiv color and put
-                        /*
-                          nowMat.color.r = data[0];
-                          nowMat.color.g = data[1];
-                          nowMat.color.b = data[2];
-                          */
+                        nowMat.emissive.r = data[0];
+                        nowMat.emissive.g = data[1];
+                        nowMat.emissive.b = data[2];
                         break;
                 }
 
                 if (line.indexOf("TextureFilename") > -1) {
                     nowReadMode = XfileLoadMode.Mat_Set_Texture;
                 }
+                if (line.indexOf("BumpMapFilename") > -1) {
+                    nowReadMode = XfileLoadMode.Mat_Set_BumpTex;
+                }
+                if (line.indexOf("NormalMapFilename") > -1) {
+                    nowReadMode = XfileLoadMode.Mat_Set_NormalTex;
+                }
+                if (line.indexOf("EmissiveMapFilename") > -1) {
+                    nowReadMode = XfileLoadMode.Mat_Set_EmissiveTex;
+                }
                 continue;
             }
-            if (nowReadMode == XfileLoadMode.Mat_Set_Texture) {
-                //テクスチャのセット
-                nowReadMode = XfileLoadMode.Mat_Set;
+            if (nowReadMode >= XfileLoadMode.Mat_Set_Texture && nowReadMode < XfileLoadMode.Weit_init) {
+                //テクスチャのセット 
                 var data = line.substr(1, line.length - 3);
                 if (data != undefined && data.length > 0) {
-                    nowMat.map = Texloader.load(baseDir + data);
-                }
 
+                    switch (nowReadMode) {
+                        case XfileLoadMode.Mat_Set_Texture:
+                            nowMat.map = Texloader.load(baseDir + data);
+                            break;
+                        case XfileLoadMode.Mat_Set_BumpTex:
+                            nowMat.bumpMap = Texloader.load(baseDir + data);
+                            break;
+                        case XfileLoadMode.Mat_Set_NormalTex:
+                            nowMat.normalMap = Texloader.load(baseDir + data);
+                            break;
+                        case XfileLoadMode.Mat_Set_EmissiveTex:
+                            nowMat.emissiveMap = Texloader.load(baseDir + data);
+                            break;
+                        case XfileLoadMode.Mat_Set_LightTex:
+                            nowMat.lightMap = Texloader.load(baseDir + data);
+                            break;
+                        case XfileLoadMode.Mat_Set_EnvTex:
+                            nowMat.envMap = Texloader.load(baseDir + data);
+                            break;
+                    }
+                }
+                nowReadMode = XfileLoadMode.Mat_Set;
                 i++;    //}しかないつぎの行をとばす。改行のない詰まったデータが来たらどうしようね
                 ElementLv--;
                 continue;
