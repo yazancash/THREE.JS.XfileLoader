@@ -42,7 +42,7 @@
     </div>
     <div id="canvase3d"></div>  <!-- 描画領域のためのdiv要素を配置 -->
 
-    <div id="dialog_tree" style="width:90%; height:90%;display:block;">
+    <div id="dialog_tree" style="width:90%; height:90%;display:none;">
         <ul id="bonetree" class="treeview"></ul>
     </div>
 
@@ -62,26 +62,29 @@
         function togleTreeVis() {
             document.getElementById("dialog_tree").style.display = document.getElementById("dialog_tree").style.display == 'block' ? 'none' : 'block';
         }
-
+        //文字列連結用StringBuffer
         var StringBuffer = function (string) {
             this.buffer = [];
             this.append = function (string) { this.buffer.push(string); return this; };
             this.toString = function () { return this.buffer.join(''); };
             if (string) { this.append(string); }
         };
-
+        //Three.jsおきまりの宣言
         if (!Detector.webgl) Detector.addGetWebGLMessage();
         var container, stats, controls;
         var camera, scene, renderer;
         var clock = new THREE.Clock();
-        var mixers = [];
-
+ 
+        //Three.jsの負荷の少ないLoaderの恩恵をテクスチャで受けるために、これは別途用意
         var Texloader = null;
 
+        //ボーンをHTML要素で出力するための入れ物。出さないのであれば必要ない
         var ParentList = null;
 
+        //ボーンの位置を表示するThree.Jsのヘルパーライブラリ用。必須ではない
         var skeletonHelper = null;
 
+        
         var Models = new Array();
         var WpnModel = {};
 
@@ -97,22 +100,22 @@
 
         var d = new Date();
         var LastDateTime = null;
-
-        init();
+        var addCamVect = new THREE.Vector3(0, 0, 1);
 
         var animateObj = null;
+
+        init();
 
         function init() {
 
             XfileLoader_IsUvYReverse = true;
-
             LastDateTime = Date.now();
-
             XfileLoader_IsPosZReverse = true;
 
             container = document.createElement('canvase3d');
             document.body.appendChild(container);
             camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 1, 2000);
+            camera.AddQ = new THREE.Quaternion();
             scene = new THREE.Scene();
             scene.add(new THREE.AmbientLight(0x999999));
             // grid
@@ -122,7 +125,8 @@
             // stats
             stats = new Stats();
             container.appendChild(stats.dom);
-            // model
+
+            //Three.jsのロードマネージャー。コレで一斉DLさせないコントロールとか、諸々やってくれる
             var manager = new THREE.LoadingManager();
             manager.onProgress = function (item, loaded, total) {
                 console.log(item, loaded, total);
@@ -135,73 +139,67 @@
             };
             var onError = function (xhr) {
             };
-            var loader = new XfileLoader(manager);
+
             Texloader = new THREE.TextureLoader();
+
+            //やっとXFileローダーが初期化
+            var loader = new XfileLoader(manager, Texloader);
+   
             //モデルを読み込む
-            //loader.load('content/HF105_Born2.x', function (object) {
-            loader.load('content/SSR06_Born2.x', function (object) {
+            loader.load(['content/SSR06_Born2.x', true], function (object) {
+                //読み込みが終わったオブジェクトを、シーンに追加する
                 for (var i = 0; i < object.FrameInfo.length; i++) {
                     Models.push(object.FrameInfo[i]);
                     scene.add(Models[i]);
                 }
-     
-                //一部ソフトウェアのZ位置解釈が逆になることに対応
-                var refz = new THREE.Matrix4();
-                refz.elements[10] = -1;
-                Models[0].applyMatrix(refz);
-                Models[0].position.x = 10;
-                /////ボーンの内容を出力する
-                {
-                    skeletonHelper = new THREE.SkeletonHelper(object.FrameInfo[0]);
-                    skeletonHelper.material.linewidth = 2;
-                    scene.add(skeletonHelper);
+    
+                //ボーンを線で表示するヘルパーのセット
+                skeletonHelper = new THREE.SkeletonHelper(object.FrameInfo[0]);
+                skeletonHelper.material.linewidth = 2;
+                scene.add(skeletonHelper);
 
+                /////ボーンの内容を隠しDivに出力する 
                     ParentList = new StringBuffer();
-                    //ParentList.append('<ul id=\'bonetree\' class=\'treeview\'>');
                     var keys = Object.keys(object.FrameInfo_Raw);
                     putChildrenName(object.FrameInfo_Raw[keys[0]], object);
-                    //ParentList.append('</ul>');
                     var s = ParentList.toString();
                     document.getElementById("bonetree").innerHTML = ParentList.toString();
-                }
 
-                ///連動オブジェクトの位置をセットする
+                ///連動オブジェクトの位置をセットする。ための位置を探す
                 for (var i = 0; i < Models[0].skeleton.bones.length; i++ )
                 {
+                    //指定したボーン（今回は「右手」）を探して、セットする
                     if (Models[0].skeleton.bones[i].name.indexOf('R_Wpn2') > -1 ) {
                         handR_parentBone = Models[0].skeleton.bones[i];
-                    }
-                    if (Models[0].skeleton.bones[i].name.indexOf('L_Wpn') > -1) {
-                        handL_parentBone = Models[0].skeleton.bones[i];
-                    }
-
-                    if (Models[0].skeleton.bones[i].name.indexOf('SW2_L_mp_2') > -1) {
-                        sholL_parentBone = Models[0].skeleton.bones[i];
-                    }
-                    if (Models[0].skeleton.bones[i].name.indexOf('SW2_R_mp_2') > -1) {
-                        sholR_parentBone = Models[0].skeleton.bones[i];
                     }
                 }
 
                 //アニメーションコントローラーをセット＆作成する
+                //アニメーションと3Dモデルは、直接は結合されておらず、同じクラス内の別々の入れ物で返ってきます
+                //                          ↓これがそのアニメーションの入れ物
                 keys = Object.keys(object.AnimationSetInfo);
                 animateObj = new XAnimationObject();
-                animateObj.set(object.FrameInfo[0], object.AnimationSetInfo[keys[0]], keys[0]);
-                //animateObj.createAnimation("kiri_1", 2000, 2160, true);
+                //やや難解で上長かもしれないが、
+                //              対象モデル  アニメーションセットにしたい「一番親のボーン」　　一番親のアニメーションキー名称
+                animateObj.set(Models[0], object.AnimationSetInfo[keys[0]], keys[0]);
+
+                //アニメーションを名前で作成し、　開始フレーム、　終了フレーム、　ループするかどうか　で定義する
                 animateObj.createAnimation("wark", keys[0], 50, 82, true);
+                //定義されたアニメーションを開始させる
                 animateObj.beginAnimation("wark");
 
                 object = null;
             }, onProgress, onError);
 
-            loader.load('content/wpn/Rw_Bmlf_2.x', function (object) {
+
+            //手に持たせる武器のモデルの読み込み
+            //アニメーションも何もない、一番シンプルなモデルの読み込みは、↓のような感じで終わる
+            loader.load(['content/wpn/Rw_Bmlf_2.x',true], function (object) {
                 WpnModel["Rw_Bmlf_2"] = object.FrameInfo[0];
-                scene.add(object.FrameInfo[0]);
-
-
+                scene.add(WpnModel["Rw_Bmlf_2"]);
             }, onProgress, onError);
             
-
+            //以下はThree.Jsでおきまり処理が続く
             renderer = new THREE.WebGLRenderer();
             renderer.setPixelRatio(window.devicePixelRatio);
             renderer.setSize(window.innerWidth, window.innerHeight);
@@ -232,45 +230,45 @@
             camera.updateProjectionMatrix();
             renderer.setSize(window.innerWidth, window.innerHeight);
         }
-        //
+
+        //枚フレーム通る、フレーム更新処理
         function animate() {
 
             requestAnimationFrame(animate);
+
+            //ボーンの移動量計算のため、「前回の描画からの時間の経過」をしっかりと算出しておく必要がある
             var nowTime = Date.now();
             var dulTime = nowTime - LastDateTime;
 
             LastDateTime = nowTime;
  
-            var keys = Object.keys(WpnModel);
-
             if (Models != null && Models.length > 0) {
-                /*
-                var nowNum = document.getElementById("frameNum").value;
-                nowNum = parseInt(nowNum, 10);
-                */
-
+                //ボーンの位置をアップデート。
                 animateObj.update(dulTime);
 
-                if (handR_parentBone != null && keys.length > 0) {
-                    WpnModel[keys[0]].matrix = new THREE.Matrix4();
+                //手のボーン位置に、別モデル（武器）を移動して、持たせる
+                //上の「ボーンのUpdate」より後に置かないと、位置がずれるので注意
+                if (handR_parentBone != null && WpnModel != null) {
+                    WpnModel["Rw_Bmlf_2"].matrix = new THREE.Matrix4();
                     var rolx = new THREE.Matrix4();
                     rolx.makeRotationX(Math.PI);
-                    WpnModel[keys[0]].applyMatrix(handR_parentBone.matrixWorld.multiply(rolx));
+                    WpnModel["Rw_Bmlf_2"].applyMatrix(handR_parentBone.matrixWorld.multiply(rolx));
                 }
 
+                //ボーンを線で表示するヘルパーも同じく更新
                 if (skeletonHelper != null) { skeletonHelper.update(); }
 
             }
 
-
             stats.update();
             render();
         }
+
         function render() {
-            //renderer.setFaceCulling(THREE.CullFaceFront, THREE.FrontFaceDirectionCW);
             renderer.render(scene, camera);
         }
 
+        //ボーンツリー出力のHTMLタグを作成する
         function putChildrenName(_xinf, baseObj) {
             //ParentList = new StringBuffer();
             ParentList.append('<li class=\'closed\'> <span>');

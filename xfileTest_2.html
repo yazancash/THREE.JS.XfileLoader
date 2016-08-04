@@ -42,7 +42,7 @@
     </div>
     <div id="canvase3d"></div>  <!-- 描画領域のためのdiv要素を配置 -->
 
-    <div id="dialog_tree" style="width:90%; height:90%;display:block;">
+    <div id="dialog_tree" style="width:90%; height:90%;display:none;">
         <ul id="bonetree" class="treeview"></ul>
     </div>
 
@@ -56,7 +56,7 @@
 
     <script src="js/Detector.js"></script>
     <script src="js/libs/stats.min.js"></script>
-
+    <script src="js/libs/dat.gui.min.js"></script>
     <script>
 
         function togleTreeVis() {
@@ -70,6 +70,12 @@
             if (string) { this.append(string); }
         };
 
+        var datgui = function() {
+            this.motion1 = 'wark';
+            this.motion2 = '';
+        };
+
+
         if (!Detector.webgl) Detector.addGetWebGLMessage();
         var container, stats, controls;
         var camera, scene, renderer;
@@ -82,7 +88,6 @@
 
         var skeletonHelper = null;
 
-        var Models = new Array();
         var WpnModel = {};
 
         var animateInf = null;
@@ -103,6 +108,13 @@
         var animateObj = null;
 
         var isSubObjectLoad = false;
+        var CharaModel = null;
+
+        var animate1List = new Array();
+        var animate2List = new Array();
+
+        var animate3List = new Array();
+        var animate4List = new Array();
 
         function init() {
 
@@ -137,52 +149,125 @@
             };
             var onError = function (xhr) {
             };
-            var loader = new XfileLoader(manager);
-            Texloader = new THREE.TextureLoader();
-            //モデルを読み込む
 
+            Texloader = new THREE.TextureLoader();
+            var loader = new XfileLoader(manager, Texloader);
+       
+            //モデルを読み込む
+        
             //マウントする子オブジェクトのロード
             //左右反転の必要がある＆元からポリゴン数が少ないため、両面ポリ化する
-            loader.load('content/wpn/Rw_Bmlf_2.x', function (object) {
+            loader.load(['content/wpn/Rw_Bmlf_2.x',false], function (object) {
                 WpnModel["Rw_Bmlf_2"] = object.FrameInfo[0];
                 scene.add(object.FrameInfo[0]);
             }, onProgress, onError);
-
-            loader.load('content/wpn/BMS_3.x', function (object) {
+         
+            loader.load(['content/wpn/BMS_3.x', false], function (object) {
                 WpnModel["BMS_3"] = object.FrameInfo[0];
                 scene.add(object.FrameInfo[0]);
+                WpnModel["BBC_1"] = object.FrameInfo[0].clone();
+                scene.add(WpnModel["BBC_1"]);
             }, onProgress, onError);
-
-            loader.load('content/wpn/BBC_1.x', function (object) {
+            /*
+            loader.load(['content/wpn/BBC_1.x', false], function (object) {
                 WpnModel["BBC_1"] = object.FrameInfo[0];
                 scene.add(object.FrameInfo[0]);
             }, onProgress, onError);
-
-
-            //loader.load('content/HF105_Born2.x', function (object) {
-            loader.load('content/SSR06_Born2.x', function (object) {
-                for (var i = 0; i < object.FrameInfo.length; i++) {
-                    Models.push(object.FrameInfo[i]);
-                    scene.add(Models[i]);
-                }
-
-                //一部ソフトウェアのZ位置解釈が逆になることに対応
-                var refz = new THREE.Matrix4();
-                refz.elements[10] = -1;
-                Models[0].applyMatrix(refz);
-                Models[0].position.x = 10;
-   
+            */
+            loader.load(['content/SSR06_Born2.x', true], function (object) {
+          
+                CharaModel = object.FrameInfo[0];
+                scene.add(CharaModel);
                 //アニメーションコントローラーをセット＆作成する
                 keys = Object.keys(object.AnimationSetInfo);
                 animateObj = new XAnimationObject();
-                animateObj.set(object.FrameInfo[0], object.AnimationSetInfo[keys[0]], keys[0]);
-                //animateObj.createAnimation("kiri_1", 2000, 2160, true);
-                animateObj.createAnimation("wark", keys[0], 50, 82, true);
+                //全身を使うアニメーション
+                animateObj.set(CharaModel, object.AnimationSetInfo[keys[0]], keys[0]);
+                //上半身のみに適用するアニメーション
+                animateObj.addAnimation(object.AnimationSetInfo[keys[0]], keys[0] + "_up", ["Frame2_Bone01"]);
+
+           
+                    animateObj.createAnimation("stand", keys[0], 10, 11, true); animate1List.push('stand');
+                    animateObj.createAnimation("wark", keys[0], 50, 82, true); animate1List.push('wark');
+                    animateObj.createAnimation("back", keys[0], 100, 130, true); animate1List.push('back');
+                    animateObj.createAnimation("dash", keys[0], 150, 180, true); animate1List.push('dash');
+                    animateObj.createAnimation("kiri1", keys[0], 2400, 2480, true); animate1List.push('kiri1');
+                    animateObj.createAnimation("kiri2", keys[0], 2500, 2560, true); animate1List.push('kiri2');
+
+                    animateObj.createAnimation("Fire1", keys[0] + "_up", 1000, 1050, false); animate2List.push('Fire1');
+                    animateObj.createAnimation("Fire2", keys[0] + "_up", 2600, 2680, false); animate2List.push('Fire2');
+              
+
                 animateObj.beginAnimation("wark");
+
+                //モデルの位置・回転・拡大【だけ】をコントロールしたい場合、↓のような個別プロパティにセットする。
+                //Matrixはいじらない
+                //Models[0].position.x = 10;
+
+                //デバッグ用Guiのセット
+                {
+                    var guiAnimator = new datgui();
+                    var gui = new dat.GUI();
+                    document.getElementById('canvase3d').appendChild(gui.domElement);
+
+                    var controller1 = gui.add(guiAnimator, 'motion1', animate1List);
+                    var controller2 = gui.add(guiAnimator, 'motion2', animate2List);
+
+         
+
+                    controller1.onChange(function (value) {
+                        animateObj.beginAnimation(value, true);
+                    });
+
+                    controller2.onChange(function (value) {
+                        if (value != undefined && value != '') {
+                            animateObj.beginAnimation(value, false);
+                        }                  
+                    });
+                }
+
+                object = null;
+            }, onProgress, onError);
+           
+
+            loader.load(['content/SSR06_Born2.x', true], function (object) {
+
+                CharaModel2 = object.FrameInfo[0];
+                scene.add(CharaModel2);
+                //アニメーションコントローラーをセット＆作成する
+                keys = Object.keys(object.AnimationSetInfo);
+                animateObj2 = new XAnimationObject();
+                //全身を使うアニメーション
+                animateObj2.set(object.FrameInfo[0], object.AnimationSetInfo[keys[0]], keys[0]);
+                //上半身のみに適用するアニメーション
+                animateObj2.addAnimation(object.AnimationSetInfo[keys[0]], keys[0] + "_up", ["Frame2_Bone01"]);
+                {
+                    animateObj2.createAnimation("stand", keys[0], 10, 11, true); animate3List.push('stand');
+                    animateObj2.createAnimation("wark", keys[0], 50, 82, true); animate3List.push('wark');
+                    animateObj2.createAnimation("back", keys[0], 100, 130, true); animate3List.push('back');
+                    animateObj2.createAnimation("dash", keys[0], 150, 180, true); animate3List.push('dash');
+                    animateObj2.createAnimation("kiri1", keys[0], 2400, 2480, true); animate3List.push('kiri1');
+                    animateObj2.createAnimation("kiri2", keys[0], 2500, 2560, true); animate3List.push('kiri2');
+
+                    animateObj2.createAnimation("Fire1", keys[0] + "_up", 1000, 1050, false); animate4List.push('Fire1');
+                    animateObj2.createAnimation("Fire2", keys[0] + "_up", 2600, 2680, false); animate4List.push('Fire2');
+                }
+
+                animateObj2.beginAnimation("kiri1");
+
+                //モデルの位置・回転・拡大【だけ】をコントロールしたい場合、↓のような個別プロパティにセットする。
+                //Matrixはいじらない
+                CharaModel2.position.x = 10;
 
                 object = null;
             }, onProgress, onError);
 
+
+            loader.load(['content/ground/state4.x', true], function (object) {
+                scene.add(object.FrameInfo[0]);
+                object = null;
+            }, onProgress, onError);
+            
 
             renderer = new THREE.WebGLRenderer();
             renderer.setPixelRatio(window.devicePixelRatio);
@@ -214,6 +299,8 @@
             camera.updateProjectionMatrix();
             renderer.setSize(window.innerWidth, window.innerHeight);
         }
+
+
         //
         function animate() {
 
@@ -221,13 +308,18 @@
             var nowTime = Date.now();
             var dulTime = nowTime - LastDateTime;
 
-            if (WpnModel != null && Models != null && Models.length > 0) {
+            if (WpnModel != null && CharaModel != null) {
 
                 LastDateTime = nowTime;
 
-                if (Models != null && animateObj != null) {
+                if (CharaModel != null && animateObj != null) {
                     animateObj.update(dulTime);
                 }
+
+                if (CharaModel2 != null && animateObj2 != null) {
+                    animateObj2.update(dulTime);
+                }
+
 
                 var keys = Object.keys(WpnModel);
 
@@ -236,23 +328,23 @@
                     if (!isSubObjectLoad) {
 
                         ///連動オブジェクトの位置をセットする
-                        for (var i = 0; i < Models[0].skeleton.bones.length; i++) {
-                            if (Models[0].skeleton.bones[i].name.indexOf('R_Wpn2') > -1) {
-                                handR_parentBone = Models[0].skeleton.bones[i];
+                        for (var i = 0; i < CharaModel.skeleton.bones.length; i++) {
+                            if (CharaModel.skeleton.bones[i].name.indexOf('R_Wpn2') > -1) {
+                                handR_parentBone = CharaModel.skeleton.bones[i];
                                 handR_parentBone.mounting = WpnModel["Rw_Bmlf_2"];
 
                                 var rolx = new THREE.Matrix4();
                                 rolx.makeRotationX(Math.PI);
                                 handR_parentBone.MountMx = rolx;
                             }
-                            if (Models[0].skeleton.bones[i].name.indexOf('L_Wpn') > -1) {
-                                handL_parentBone = Models[0].skeleton.bones[i];
+                            if (CharaModel.skeleton.bones[i].name.indexOf('L_Wpn') > -1) {
+                                handL_parentBone = CharaModel.skeleton.bones[i];
                                 var rolx = new THREE.Matrix4();
                                 handL_parentBone.MountMx = rolx;
                             }
 
-                            if (Models[0].skeleton.bones[i].name.indexOf('SW2_L_mp_2') > -1) {
-                                sholL_parentBone = Models[0].skeleton.bones[i];
+                            if (CharaModel.skeleton.bones[i].name.indexOf('SW2_L_mp_2') > -1) {
+                                sholL_parentBone = CharaModel.skeleton.bones[i];
 
                                 var rolx = new THREE.Matrix4();
                                 sholL_parentBone.MountMx = rolx;
@@ -260,18 +352,20 @@
                                 sholL_parentBone.mounting = WpnModel["BBC_1"];
                             }
 
-                            if (Models[0].skeleton.bones[i].name.indexOf('SW2_R_mp_2') > -1) {
-                                sholR_parentBone = Models[0].skeleton.bones[i];
+                            if (CharaModel.skeleton.bones[i].name.indexOf('SW2_R_mp_2') > -1) {
+                                sholR_parentBone = CharaModel.skeleton.bones[i];
 
                                 var refz = new THREE.Matrix4();
                                 //sholR_parentBone.MountMx = refz;
                                 refz.elements[0] = -1;
                                 sholR_parentBone.MountMx = refz;
                                 sholR_parentBone.mounting = WpnModel["BMS_3"];
+                                WpnModel["BMS_3"].geometry.computeFaceNormals();
+                                WpnModel["BMS_3"].geometry.computeVertexNormals();
                             }
                         }
 
-                        Models[0].mountBones = [handR_parentBone, handL_parentBone, sholL_parentBone, sholR_parentBone];
+                        CharaModel.mountBones = [handR_parentBone, handL_parentBone, sholL_parentBone, sholR_parentBone];
 
 
                         isSubObjectLoad = true;
@@ -282,13 +376,13 @@
 
                     }
 
-                    var keys = Object.keys(Models[0].mountBones);
+                    var keys = Object.keys(CharaModel.mountBones);
 
                     for (var m = 0; m < keys.length; m++) {
-                        if (Models[0].mountBones[keys[m]].mounting != null) {
+                        if (CharaModel.mountBones[keys[m]].mounting != null) {
 
-                            Models[0].mountBones[keys[m]].mounting.matrix = new THREE.Matrix4();
-                            Models[0].mountBones[keys[m]].mounting.applyMatrix(Models[0].mountBones[keys[m]].matrixWorld.multiply(Models[0].mountBones[keys[m]].MountMx));
+                            CharaModel.mountBones[keys[m]].mounting.matrix = new THREE.Matrix4();
+                            CharaModel.mountBones[keys[m]].mounting.applyMatrix(CharaModel.mountBones[keys[m]].matrixWorld.multiply(CharaModel.mountBones[keys[m]].MountMx));
 
                         }
                     }
