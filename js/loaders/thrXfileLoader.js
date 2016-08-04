@@ -136,10 +136,9 @@ this.XfileLoadMode = {
 
 }
 
-XfileLoader = function (manager) {
-
+XfileLoader = function (manager, Texloader) {
     this.manager = (manager !== undefined) ? manager : THREE.DefaultLoadingManager;
-
+    this.Texloader = (Texloader !== undefined) ? Texloader : THREE.TextureLoader;
 };
 
 XfileLoader.prototype = {
@@ -147,20 +146,31 @@ XfileLoader.prototype = {
     constructor: XfileLoader,
 
     //読み込み開始命令部
-    load: function (url, onLoad, onProgress, onError) {
+    load: function (_arg, onLoad, onProgress, onError) {
 
         var scope = this;
         var loader = new THREE.XHRLoader(scope.manager);
         loader.setResponseType('arraybuffer');
+        var zflg = XfileLoader_IsPosZReverse;
+        var url = "";
+
+        for (var i = 0; i < _arg.length; i++) {
+            switch (i) {
+                case 0: url = _arg[i]; break;
+                case 1: zflg = _arg[i]; break;
+            }
+        }
+
         loader.load(url, function (text) {
 
-            onLoad(scope.parse(text, url));
+            onLoad(scope.parse(text, url, zflg));
 
         }, onProgress, onError);
 
     },
 
-    parse: function (data, url) {
+    //解析を行う前に、バイナリファイルかテキストファイルかを判別する。今はテキストファイルしか対応できていないので・・・
+    parse: function (data, url, zflg) {
 
         var isBinary = function () {
 
@@ -197,7 +207,7 @@ XfileLoader.prototype = {
 
         return isBinary()
 			? this.parseBinary(binData)
-			: this.parseASCII(this.ensureString(data), url);
+			: this.parseASCII(this.ensureString(data), url, zflg);
 
     },
 
@@ -213,7 +223,7 @@ XfileLoader.prototype = {
     /*
     データ読み込み＆解析本体。
     */
-    parseASCII: function (data, url) {
+    parseASCII: function (data, url, zflg) {
 
         var geometry = null;
 
@@ -225,9 +235,6 @@ XfileLoader.prototype = {
 
         //Xfileとして分解できたものの入れ物
         var LoadingXdata = new Xdata();
-
-        var ZposFlgPow = 1;
-        if (XfileLoader_IsPosZReverse) { ZposFlgPow = -1; }
 
 
         // 返ってきたデータを行ごとに分解
@@ -266,8 +273,6 @@ XfileLoader.prototype = {
         //Xfileの放線は「頂点ごと」で入っているので、それを面に再計算して割り当てる。面倒だと思う
         var NormalVectors = new Array();
         var FacesNormal = new Array();
-
-        var textureLoaded = 0;
 
         //現在読み出し中のフレーム名称
         var nowFrameName = "";
@@ -380,6 +385,13 @@ XfileLoader.prototype = {
             /*  Mesh　は、頂点数（1行または ; ）→頂点データ(;区切りでxyz要素)→面数（index要素数）→index用データ　で成り立つ
             */
             if (line.indexOf("Mesh ") > -1) {
+                if (nowFrameName == "") {
+                    FrameStartLv = ElementLv;
+                    nowFrameName = line.substr(5, line.length - 6);
+                    LoadingXdata.FrameInfo_Raw[nowFrameName] = new XFrameInfo();
+                    LoadingXdata.FrameInfo_Raw[nowFrameName].FrameName = nowFrameName;
+                    LoadingXdata.FrameInfo_Raw[nowFrameName].FrameStartLv = FrameStartLv;
+                }
 
                 LoadingXdata.FrameInfo_Raw[nowFrameName].Geometry = new THREE.Geometry();
                 geoStartLv = ElementLv;
@@ -427,13 +439,7 @@ XfileLoader.prototype = {
                 var data = line.substr(2, line.length - 4); //3頂点しか対応していない。ので、先頭の２文字 ＆  後ろの   ;, または ;; を無視
                 data = data.split(",");
                 LoadingXdata.FrameInfo_Raw[nowFrameName].Geometry.faces.push(new THREE.Face3(parseInt(data[0], 10), parseInt(data[1], 10), parseInt(data[2], 10), new THREE.Vector3(1, 1, 1).normalize()));
-                /*
-                if (XfileLoader_IsPosZReverse) {
-                    LoadingXdata.FrameInfo_Raw[nowFrameName].Geometry.faces.push(new THREE.Face3(parseInt(data[2], 10), parseInt(data[1], 10), parseInt(data[0], 10), new THREE.Vector3(1, 1, 1).normalize()));
-                } else {
-                    LoadingXdata.FrameInfo_Raw[nowFrameName].Geometry.faces.push(new THREE.Face3(parseInt(data[0], 10), parseInt(data[1], 10), parseInt(data[2], 10), new THREE.Vector3(1, 1, 1).normalize()));
-                }
-                */
+             
 
                 nowReaded++;
                 if (nowReaded >= tgtLength) {
@@ -573,7 +579,7 @@ XfileLoader.prototype = {
                 matReadLine = 0;
                 nowMat = new THREE.MeshPhongMaterial({ color: Math.random() * 0xffffff });
 
-                if (XfileLoader_IsPosZReverse) {
+                if (zflg) {
                     nowMat.side = THREE.BackSide;
                 }
                 else {
@@ -615,9 +621,11 @@ XfileLoader.prototype = {
                 }
                 if (line.indexOf("BumpMapFilename") > -1) {
                     nowReadMode = XfileLoadMode.Mat_Set_BumpTex;
+                    nowMat.bumpScale = -0.05;
                 }
                 if (line.indexOf("NormalMapFilename") > -1) {
                     nowReadMode = XfileLoadMode.Mat_Set_NormalTex;
+                    nowMat.normalScale= new THREE.Vector2(-1,2);
                 }
                 if (line.indexOf("EmissiveMapFilename") > -1) {
                     nowReadMode = XfileLoadMode.Mat_Set_EmissiveTex;
@@ -631,22 +639,22 @@ XfileLoader.prototype = {
 
                     switch (nowReadMode) {
                         case XfileLoadMode.Mat_Set_Texture:
-                            nowMat.map = Texloader.load(baseDir + data);
+                            nowMat.map = this.Texloader.load(baseDir + data);
                             break;
                         case XfileLoadMode.Mat_Set_BumpTex:
-                            nowMat.bumpMap = Texloader.load(baseDir + data);
+                            nowMat.bumpMap = this.Texloader.load(baseDir + data);
                             break;
                         case XfileLoadMode.Mat_Set_NormalTex:
-                            nowMat.normalMap = Texloader.load(baseDir + data);
+                            nowMat.normalMap = this.Texloader.load(baseDir + data);
                             break;
                         case XfileLoadMode.Mat_Set_EmissiveTex:
-                            nowMat.emissiveMap = Texloader.load(baseDir + data);
+                            nowMat.emissiveMap = this.Texloader.load(baseDir + data);
                             break;
                         case XfileLoadMode.Mat_Set_LightTex:
-                            nowMat.lightMap = Texloader.load(baseDir + data);
+                            nowMat.lightMap = this.Texloader.load(baseDir + data);
                             break;
                         case XfileLoadMode.Mat_Set_EnvTex:
-                            nowMat.envMap = Texloader.load(baseDir + data);
+                            nowMat.envMap = this.Texloader.load(baseDir + data);
                             break;
                     }
                 }
@@ -834,6 +842,20 @@ XfileLoader.prototype = {
             }
         }
 
+        //一部ソフトウェアからの出力用（DirectXとOpenGLのZ座標系の違い）に、鏡面処理を行う
+        if (LoadingXdata.FrameInfo != null & LoadingXdata.FrameInfo.length > 0) {
+            for (var i = 0 ; i < LoadingXdata.FrameInfo.length; i++) {
+                if (LoadingXdata.FrameInfo[i].parent == null && zflg) {
+                    var refz = new THREE.Matrix4();
+                    refz.elements[10] = -1;
+                    LoadingXdata.FrameInfo[i].applyMatrix(refz);
+                    //反転化したことによるメッシュ法線情報を再度割り当てる
+                    LoadingXdata.FrameInfo[i].geometry.computeFaceNormals();
+                    LoadingXdata.FrameInfo[i].geometry.computeVertexNormals();
+                }
+            }
+        }
+
         return LoadingXdata;
 
     },
@@ -874,29 +896,33 @@ XfileLoader.prototype = {
 
             //ボーンの階層構造を作成する
             //BoneはFrame階層基準で作成、その後にWeit割り当てのボーン配列を再セットする
+
             var putBones = new Array();
             var BoneDics = new Array();
             var rootBone = new THREE.Bone();
-            var keys = Object.keys(LoadingXdata.FrameInfo_Raw);
-            var BoneDics_Name = new Array();
-            for (var m = 0; m < keys.length; m++) {
-                if (LoadingXdata.FrameInfo_Raw[keys[m]].FrameStartLv <= LoadingXdata.FrameInfo_Raw[nowFrameName].FrameStartLv && nowFrameName != keys[m]) { continue; }
+            if (LoadingXdata.FrameInfo_Raw[nowFrameName].BoneInfs != null && LoadingXdata.FrameInfo_Raw[nowFrameName].BoneInfs.length) {
+                var keys = Object.keys(LoadingXdata.FrameInfo_Raw);
+                var BoneDics_Name = new Array();
+                for (var m = 0; m < keys.length; m++) {
+                    if (LoadingXdata.FrameInfo_Raw[keys[m]].FrameStartLv <= LoadingXdata.FrameInfo_Raw[nowFrameName].FrameStartLv && nowFrameName != keys[m]) { continue; }
 
-                var b = new THREE.Bone();
-                b.name = keys[m];
-                b.applyMatrix(LoadingXdata.FrameInfo_Raw[keys[m]].FrameTransformMatrix);
-                b.matrixWorld = b.matrix;
-                BoneDics_Name[b.name] = putBones.length;
-                putBones.push(b);
-            }
+                    var b = new THREE.Bone();
+                    b.name = keys[m];
+                    b.applyMatrix(LoadingXdata.FrameInfo_Raw[keys[m]].FrameTransformMatrix);
+                    b.matrixWorld = b.matrix;
+                    b.FrameTransformMatrix = LoadingXdata.FrameInfo_Raw[keys[m]].FrameTransformMatrix;
+                    BoneDics_Name[b.name] = putBones.length;
+                    putBones.push(b);
+                }
 
 
-            //今度はボーンの親子構造を作成するために、再度ループさせる
-            for (var m = 0; m < putBones.length; m++) {
-                for (var dx = 0; dx < LoadingXdata.FrameInfo_Raw[putBones[m].name].children.length; dx++) {
-                    var nowBoneIndex = BoneDics_Name[LoadingXdata.FrameInfo_Raw[putBones[m].name].children[dx]];
-                    if (putBones[nowBoneIndex] != null) {
-                        putBones[m].add(putBones[nowBoneIndex]);
+                //今度はボーンの親子構造を作成するために、再度ループさせる
+                for (var m = 0; m < putBones.length; m++) {
+                    for (var dx = 0; dx < LoadingXdata.FrameInfo_Raw[putBones[m].name].children.length; dx++) {
+                        var nowBoneIndex = BoneDics_Name[LoadingXdata.FrameInfo_Raw[putBones[m].name].children[dx]];
+                        if (putBones[nowBoneIndex] != null) {
+                            putBones[m].add(putBones[nowBoneIndex]);
+                        }
                     }
                 }
             }
@@ -949,6 +975,8 @@ XfileLoader.prototype = {
                 var skeleton = new THREE.Skeleton(putBones);
                 mesh.add(putBones[0]);
                 mesh.bind(skeleton);
+
+                mesh.SketetonBase = putBones;
 
             }
             else {
@@ -1006,6 +1034,47 @@ XfileLoader.prototype = {
 
 };
 
+////////////
+
+///メッシュだけじゃなく、ボーンも複製して返す
+XfileLoader_CopyObject = function(_mesh)
+{
+    var mesh = new THREE.SkinnedMesh(_mesh.geometry, _mesh.material);
+
+    mesh.children = new Array();
+   
+    var putBones = new Array();
+
+    for (var i = 0; i < _mesh.skeleton.bones.length; i++) {
+        var b = new THREE.Bone(mesh);
+        b.name = _mesh.skeleton.bones[i].name;
+        b.applyMatrix(_mesh.skeleton.bones[i].FrameTransformMatrix);
+        b.matrixWorld = _mesh.skeleton.bones[i].matrixWorld;
+        putBones.push(b);
+    }
+
+    //再検索＆再割り当て処理
+    for (var i = 0; i < _mesh.skeleton.bones.length; i++) {
+        for (var bi = 0; bi < _mesh.skeleton.bones[i].children.length; bi++) {
+            if (_mesh.skeleton.bones[i].children[bi].type == "Bone") {
+                for (var m = 0; m < putBones.length; m++) {
+                    if (putBones[m].name == _mesh.skeleton.bones[i].children[bi].name) {
+                        //_mesh.skeleton.bonesとputBonesは、上記処理により同じ並びになっている
+                         putBones[i].add(putBones[m]);
+                    }
+                }
+            }
+        }
+    }
+ 
+    var skeleton = new THREE.Skeleton(putBones);
+    mesh.add(putBones[0]);
+    mesh.bind(skeleton);
+
+    return mesh;
+}
+
+
 ////////////////////////////////////////////////////////////////
 
 //ボーンとそれに紐付けられたキーフレーム。
@@ -1014,46 +1083,44 @@ XAnimateBone = function () {
     this.TargetBone = null;
     //複数のAninmationSetが来ることを想定。ここの配列は、AnimationSetで検索されるDictionary型
     this.KeyFrames = {};
-    this.nowFrameValue = null;
+    //「現在表示対象」となるアニメーション名とボーンMxの組み合わせ。
+    this.nowFrameValue = {};
+    this.LastKeyFrameValue = new THREE.Matrix4();
 }
 
 XAnimateBone.prototype = {
     constructor: XAnimateBone,
 
-    setBoneMatrixFromKeyFrame: function (_animeName, _keyFrameNum) {
+    setBoneMatrixFromKeyFrame: function (_animeSetName, _keyFrameNum, _animeName) {
 
         var boneMxValue = new THREE.Matrix4();
-        if (this.KeyFrames[_animeName] == null) { return; }
+        if (this.KeyFrames[_animeSetName] == null) { return; }
 
-        for (var m = 0; m < this.KeyFrames[_animeName].length; m++) {
-            if (this.KeyFrames[_animeName][m].Frame >= _keyFrameNum) {
-                if (this.KeyFrames[_animeName][m].Frame == _keyFrameNum) {
-                    boneMxValue.copy(this.KeyFrames[_animeName][m].Matrix);
+        for (var m = 0; m < this.KeyFrames[_animeSetName].length; m++) {
+            if (this.KeyFrames[_animeSetName][m].Frame >= _keyFrameNum) {
+                if (this.KeyFrames[_animeSetName][m].Frame == _keyFrameNum) {
+                    boneMxValue.copy(this.KeyFrames[_animeSetName][m].Matrix);
                 }
                 else {
                     //終了キーとの中間キーをセットする
-                    if (this.KeyFrames[_animeName].length > 0) {
+                    if (this.KeyFrames[_animeSetName].length > 0) {
 
                         boneMxValue.copy(this.LerpKeyFrame(_keyFrameNum,
-                                                this.KeyFrames[_animeName][m - 1].Frame,
-                                                this.KeyFrames[_animeName][m - 1].Matrix,
-                                                this.KeyFrames[_animeName][m].Frame,
-                                                this.KeyFrames[_animeName][m].Matrix));
+                                                this.KeyFrames[_animeSetName][m - 1].Frame,
+                                                this.KeyFrames[_animeSetName][m - 1].Matrix,
+                                                this.KeyFrames[_animeSetName][m].Frame,
+                                                this.KeyFrames[_animeSetName][m].Matrix));
                     } else {
-                        boneMxValue.copy(this.KeyFrames[_animeName][m].Matrix);
+                        boneMxValue.copy(this.KeyFrames[_animeSetName][m].Matrix);
                     }
                 }
                 break;
             }
         }
 
-        this.nowFrameValue = boneMxValue;
-        this.TargetBone.matrix = new THREE.Matrix4();
-        this.TargetBone.applyMatrix(boneMxValue);
-        this.TargetBone.updateMatrix();
-        this.TargetBone.matrixWorldNeedsUpdate = true;
-      
-
+        //↓これらは「一時的」なMatrixにセットすべきもの。最終合成は別の箇所で行うべき
+        //this.nowFrameValue = boneMxValue;   
+        this.nowFrameValue[_animeName] = boneMxValue;
     },
 
     //2つのキーフレームの線形保管Matrixを作成する
@@ -1079,7 +1146,7 @@ XAnimateBone.prototype = {
 ///再生される１つ１つのアニメーションの管理。
 ///アニメーションされるモデルタンス１つ*そのモデルにさせるアニメーションの数　の分作成される。
 XActionInfo = function () {
-    this.ActionName = "";
+    this.actionName = "";
     this.beginKey = 0;
     this.beginTime = 0;
 
@@ -1090,31 +1157,57 @@ XActionInfo = function () {
     this.nowKeyFrameTime = 0;
 
     this.isLoop = false;
+    this.isEndKeep = false; //ループをしないで、最終モーションを維持するタイプ
 
     this.isAnimation = false;
 
-    this.UseAnimationSetName = "";
+    this.nowMorphPower = 0.0;
+    this.morphTime = 1000;   //モーション補完の終了タイム（ミリ秒）。
+    this.elapsedTime = 0;   //トータル経過時間
 
-    this.thisFrameMatrices = new Array();
+    this.useAnimationSetName = "";
+
+    this.thisFrameMatrices = {};
+
+    this.EndEvent = null;
 }
 
 XActionInfo.prototype = {
     constructor: XActionInfo,
 
-    begin: function () {
+    begin: function (_morphTime, _mopthPow) {
         this.nowTime = 0;
+        this.elapsedTime = 0;
         this.isAnimation = true;
+        this.nowMorphPower = 0.0;
+        if (_morphTime != null) {
+            this.morphTime = _morphTime;
+        } else {
+            this.morphTime = 500;
+        }
+
+        this.morphTime = Math.min(this.morphTime, this.endTime);
         //this.setAnimateBone(0);
+    },
+
+    endAnimation: function()
+    {
+        this.isAnimation = false;
+        this.elapsedTime = 0;
     },
 
     update: function (_dul) {
         this.nowTime += _dul;
+        this.elapsedTime += _dul;
         if (this.nowTime > this.endTime) {
             if (this.isLoop) {
                 this.nowTime = 0;
             }
             else {
                 this.nowTime = this.endTime;
+                if (!this.isEndKeep && this.isAnimation) {
+                    this.endAnimation();
+                } 
             }
         }
 
@@ -1124,6 +1217,30 @@ XActionInfo.prototype = {
         nowPow = this.beginKey + nowPow * (this.endKey - this.beginKey);
         this.nowKeyFrameTime = Math.floor(nowPow);
 
+        if (this.elapsedTime > 0) {
+            this.nowMorphPower = this.elapsedTime / this.morphTime;
+            this.nowMorphPower = Math.min(this.nowMorphPower, 1.0);
+        } else {
+            this.nowMorphPower = 0;
+        }
+        /*
+        if (this.isAnimation) {
+            if (this.elapsedTime > 0) {
+                this.nowMorphPower = this.elapsedTime / this.morphTime;
+                this.nowMorphPower = Math.min(this.nowMorphPower, 1.0);
+            } else {
+                this.nowMorphPower = 0;
+            }
+         
+        } else {
+            if (this.elapsedTime > 0) {
+                this.nowMorphPower = this.elapsedTime / this.morphTime;
+                this.nowMorphPower = Math.min(this.nowMorphPower, 1.0);
+            } else {
+                this.nowMorphPower = 0;
+            }
+        }
+        */
         //this.setAnimateBoneFromKeyFrame(Math.floor(nowPow));
 
     },
@@ -1141,12 +1258,14 @@ XAnimationObject = function () {
     this.AnimateBones = null;
 
     //XActionInfo Array
-    this.ActionInfo = new Array();
+    this.ActionInfo = {};
 
 
     this.AnimTicksPerSecond = 30;
 
     this.nowAnimations = new Array();
+    
+    
 }
 
 XAnimationObject.prototype = {
@@ -1154,13 +1273,12 @@ XAnimationObject.prototype = {
 
     ///ボーンとキーフレームをリンクさせ、アニメーションを行うようにする
     set: function (_mesh, _animations, _animationSetName) {
-        this.Mesh = _mesh
+        this.Mesh = _mesh;
         this.AnimateBones = new Array();
-
         this.addAnimation(_animations, _animationSetName);
     },
 
-    addAnimation: function (_animations, _animationSetName)
+    addAnimation: function (_animations, _animationSetName, _enableBones)
     {
         var keys = Object.keys(_animations);
 
@@ -1171,23 +1289,43 @@ XAnimationObject.prototype = {
                     if (_animations[keys[i]] != null) {
                         if (this.Mesh.skeleton.bones[b].name == _animations[keys[i]].BoneName) {
 
-                            //ボーンとアニメーションの組み合わせはあることは決定。
-                            //次に、すでにこのオブジェクトとして、ボーンが宣言済みでないかどうかを探す
-                            var find = false;
-                            for (var m = 0; m < this.AnimateBones.length; m++) {
-                                if (this.AnimateBones[m].TargetBone.name == _animations[keys[i]].BoneName) {
-                                    find = true;
-                                    this.AnimateBones[m].TargetBone.KeyFrames[_animationSetName] = _animations[keys[i]].KeyFrames;
-                                    break;
+                            var isEnabled = false;
+                            //このボーンが有効かどうかの判定を行う。
+                            if (_enableBones != undefined && _enableBones.length > 0) {
+                                var Hierarchy = new Array();
+                                getHierarchy(this.Mesh.skeleton.bones[b], Hierarchy);
+                                for (var m = 0; m < Hierarchy.length; m++) {
+                                    for (var n = 0; n < _enableBones.length; n++) {
+                                        if (Hierarchy[m] == _enableBones[n]) {
+                                            isEnabled = true;
+                                            break;
+                                        }
+                                    }
+                                    if (isEnabled) { break; }
                                 }
+                            } else {
+                                isEnabled = true;
                             }
 
-                            if (!find) {
-                                nowBone = new XAnimateBone();
-                                nowBone.TargetBone = this.Mesh.skeleton.bones[b];
-                                nowBone.KeyFrames[_animationSetName] = _animations[keys[i]].KeyFrames;
+                            if (isEnabled) {
+                                //ボーンとアニメーションの組み合わせはあることは決定。
+                                //次に、すでにこのオブジェクトとして、ボーンが宣言済みでないかどうかを探す
+                                var find = false;
+                                for (var m = 0; m < this.AnimateBones.length; m++) {
+                                    if (this.AnimateBones[m].TargetBone.name == _animations[keys[i]].BoneName) {
+                                        find = true;
+                                        this.AnimateBones[m].KeyFrames[_animationSetName] = _animations[keys[i]].KeyFrames;
+                                        break;
+                                    }
+                                }
 
-                                this.AnimateBones.push(nowBone);
+                                if (!find) {
+                                    nowBone = new XAnimateBone();
+                                    nowBone.TargetBone = this.Mesh.skeleton.bones[b];
+                                    nowBone.KeyFrames[_animationSetName] = _animations[keys[i]].KeyFrames;
+
+                                    this.AnimateBones.push(nowBone);
+                                }
                             }
                             break;
                         }
@@ -1195,26 +1333,62 @@ XAnimationObject.prototype = {
                 }
 
             }
+
         }
     },
 
     //新セット登録
-    createAnimation: function (animeName, UseAnimationSetName, beginkey, endKey, isLoop) {
+    createAnimation: function (animeName, _useAnimationSetName, beginkey, endKey, isLoop, isEndKeep) {
         var nowAnime = new XActionInfo();
-        nowAnime.ActionName = animeName;
-        nowAnime.UseAnimationSetName = UseAnimationSetName;
+        nowAnime.actionName = animeName;
+        nowAnime.useAnimationSetName = _useAnimationSetName;
         nowAnime.beginKey = beginkey;
         nowAnime.endKey = endKey;
-        nowAnime.isLoop = isLoop;
+
         nowAnime.endTime = (endKey - beginkey) / this.AnimTicksPerSecond;
         nowAnime.endTime = nowAnime.endTime * 1000; //ミリ秒にする   
+
+        nowAnime.isLoop = false;
+        if (isLoop != null) {
+            nowAnime.isLoop = isLoop;
+        }        
+        if (isEndKeep != null) {
+            nowAnime.isEndKeep = isEndKeep;
+        }
+
         this.ActionInfo[animeName] = nowAnime;
 
+        if (this.nowAnimations[_useAnimationSetName] == null) {
+            this.nowAnimations[_useAnimationSetName] = new Array();
+        }
     },
 
-    beginAnimation: function (animeName) {
+    beginAnimation: function (animeName, isExclusion) {
+        //強制的に全モーションを止め、新モージョンを開始する（全身）
+        if (isExclusion != null && isExclusion) {
+            this.nowAnimations[this.ActionInfo[animeName].useAnimationSetName] = new Array();
+        }
         this.ActionInfo[animeName].begin();
-        this.nowAnimations.push(animeName);
+
+        //一度、既に同じアニメーションがないかどうか検索
+        for (var i = 0; i < this.nowAnimations[this.ActionInfo[animeName].useAnimationSetName].length;) {
+            if (this.nowAnimations[this.ActionInfo[animeName].useAnimationSetName][i] == animeName) {
+                this.nowAnimations[this.ActionInfo[animeName].useAnimationSetName].splice(i, 1);
+            } else { i++;}
+        }
+
+        //次に、２つ以上アニメーションが残らないように消す
+        for (var i = 0; i < this.nowAnimations[this.ActionInfo[animeName].useAnimationSetName].length;) {
+            if (this.nowAnimations[this.ActionInfo[animeName].useAnimationSetName].length > 1) {
+                this.nowAnimations[this.ActionInfo[animeName].useAnimationSetName].splice(i, 1);
+            } else {
+                this.ActionInfo[this.nowAnimations[this.ActionInfo[animeName].useAnimationSetName][i]].endAnimation();
+                i++;
+            }
+        }
+
+        this.nowAnimations[this.ActionInfo[animeName].useAnimationSetName].push(animeName);
+        //this.nowAnimations.push(animeName);
     },
 
     AnimationUpdate: function () {
@@ -1223,24 +1397,123 @@ XAnimationObject.prototype = {
     },
 
     update: function (_dul) {
-        for (var i = 0; i < this.nowAnimations.length; i++) {
-            this.ActionInfo[this.nowAnimations[i]].update(_dul);
-            this.setAnimateBoneFromKeyFrame(this.ActionInfo[this.nowAnimations[i]].UseAnimationSetName,  this.ActionInfo[this.nowAnimations[i]].nowKeyFrameTime);
+        var nowMxList = {};
+        var baseKeys = Object.keys(this.nowAnimations);
+        var activeKeys = [];
+        //モーション合成のため、各ボーンの「今の値」を保持
+        for (var m = 0; m < baseKeys.length; m++) {
+            activeKeys[m] = [];
+            for (var i = 0; i < this.nowAnimations[baseKeys[m]].length;i++) {
+
+                activeKeys[m].push(this.nowAnimations[baseKeys[m]][i]);
+                this.ActionInfo[this.nowAnimations[baseKeys[m]][i]].update(_dul);
+
+                //このモーション＆フレームの組み合わせでの値を確定させる
+                this.setAnimateBoneFromKeyFrame(this.ActionInfo[this.nowAnimations[baseKeys[m]][i]].useAnimationSetName,
+                                                this.ActionInfo[this.nowAnimations[baseKeys[m]][i]].nowKeyFrameTime,
+                                                this.ActionInfo[this.nowAnimations[baseKeys[m]][i]].actionName);
+                
+            }
         }
 
         //割り当てられてるanimation計算が終わったら、合成する
+        //今回は、あくまで「アニメーション1とアニメーション2を掛け合わせる」ことしかやっていない。
+        //２つ以上のアニメーションは「平行再生（保留）」状態とし、追加されたアニメーションが終わり次第そのアニメーションに戻る、ということになる。
+        //これで、いわば　歩き→上半身は撃つ：下半身は歩く→歩きに戻る　が可能になる、という仕組み
+        for (var i = 0; i < this.AnimateBones.length; i++) {
+            //var keys = Object.keys(this.AnimateBones[i].nowFrameValue);
+            var tmpMxArray = [];
+            var tmpMx = new THREE.Matrix4();
+            for (var m = 0; m < baseKeys.length; m++) {
+                tmpMx = new THREE.Matrix4();
+                var keys = activeKeys[m];
+                if (keys.length == 0) { continue;}
+                if (keys.length == 1 || activeKeys[m].length <= 1) {
+                    tmpMx = this.AnimateBones[i].nowFrameValue[activeKeys[m][0]];
+                } else {
+                    //最後に追加されたもの＆その強度でモーション補完Matrixを作成する
+                    var tmpMx2 = new THREE.Matrix4();
+                    if (this.AnimateBones[i].nowFrameValue[activeKeys[m][activeKeys[m].length - 1]] != null) {
+                        tmpMx2.copy(this.AnimateBones[i].nowFrameValue[activeKeys[m][0]]);
+                        tmpMx.copy(this.AnimateBones[i].nowFrameValue[activeKeys[m][activeKeys[m].length - 1]]);
 
+                        if (this.ActionInfo[activeKeys[m][activeKeys[m].length - 1]].isAnimation) {
+                            tmpMx = LerpMatrix(tmpMx2, tmpMx, this.ActionInfo[activeKeys[m][activeKeys[m].length - 1]].nowMorphPower);
+                        } else {
+                            //終了時の戻り
+                            tmpMx = LerpMatrix(tmpMx, tmpMx2, this.ActionInfo[activeKeys[m][activeKeys[m].length - 1]].nowMorphPower);
+                        }
+                    }
+                    else {
+                        tmpMx = this.AnimateBones[i].nowFrameValue[activeKeys[m][0]];
+                    }
+                }
+                if (tmpMx != null) { tmpMxArray.push(tmpMx) };
+            }
+
+            if (tmpMxArray.length <= 1) { tmpMx = tmpMxArray[0]; }
+            else {
+                tmpMx = LerpMatrix(tmpMxArray[0], tmpMxArray[1], this.ActionInfo[activeKeys[activeKeys.length - 1][activeKeys[activeKeys.length - 1].length - 1]].nowMorphPower);
+            }
+
+            /*
+            var keys = activeKeys;
+            var tmpMx = new THREE.Matrix4();
+            if (keys.length == 1 || activeKeys.length <= 1) {
+                tmpMx = this.AnimateBones[i].nowFrameValue[activeKeys[0]];
+            } else {
+                //最後に追加されたもの＆その強度でモーション補完Matrixを作成する
+                var tmpMx2 = new THREE.Matrix4();
+                if (this.AnimateBones[i].nowFrameValue[activeKeys[activeKeys.length - 1]] != null) {
+                    tmpMx2.copy(this.AnimateBones[i].nowFrameValue[activeKeys[0]]);
+                    tmpMx.copy(this.AnimateBones[i].nowFrameValue[activeKeys[activeKeys.length - 1]]);
+
+                    if (this.ActionInfo[activeKeys[activeKeys.length - 1]].isAnimation) {
+                        tmpMx = LerpMatrix(tmpMx2, tmpMx, this.ActionInfo[activeKeys[activeKeys.length - 1]].nowMorphPower);
+                    } else {
+                        //終了時の戻り
+                        tmpMx = LerpMatrix(tmpMx, tmpMx2, this.ActionInfo[activeKeys[activeKeys.length - 1]].nowMorphPower);
+                    }
+                }
+                else {
+                    tmpMx = this.AnimateBones[i].nowFrameValue[activeKeys[0]];
+                }
+            }
+            */
+            this.AnimateBones[i].TargetBone.matrix = new THREE.Matrix4();
+            this.AnimateBones[i].TargetBone.applyMatrix(tmpMx);
+            this.AnimateBones[i].TargetBone.updateMatrix();
+            this.AnimateBones[i].TargetBone.matrixWorldNeedsUpdate = true;
+
+        }
+     
+        //終了判定のアニメーションを削除
+        for (var m = 0; m < baseKeys.length; m++) {
+            for ( var i = 0; i < this.nowAnimations[baseKeys[m]].length;) {
+
+                if (!this.ActionInfo[this.nowAnimations[baseKeys[m]][i]].isAnimation &&
+                this.ActionInfo[this.nowAnimations[baseKeys[m]][i]].nowMorphPower == 1 &&
+                this.ActionInfo[this.nowAnimations[baseKeys[m]][this.nowAnimations[baseKeys[m]].length - 1]].nowMorphPower == 1) {
+
+                    this.nowAnimations[baseKeys[m]].splice(i, 1);
+                } else { i++; }
+            }
+        }
 
         this.Mesh.updateMatrix();
     },
 
 
-    ///キーフレームの値を指定し、ボーンをセットする
-    setAnimateBoneFromKeyFrame: function (_UseAnimationSetName, _keyFrame) {
+    ///キーフレームの値を指定しMatrixを得る
+    setAnimateBoneFromKeyFrame: function (_useAnimationSetName, _keyFrame, _animeName ) {
         //ボーン毎にループ
         for (var i = 0; i < this.AnimateBones.length; i++) {
-            //ボーンに位置をセット
-            this.AnimateBones[i].setBoneMatrixFromKeyFrame(_UseAnimationSetName, _keyFrame);
+            if (this.AnimateBones[i].KeyFrames == null) { continue; }
+
+            if (this.AnimateBones[i].KeyFrames[_useAnimationSetName] != null){
+                //ボーンに位置をセット
+                this.AnimateBones[i].setBoneMatrixFromKeyFrame(_useAnimationSetName, _keyFrame, _animeName );
+            }
         }
     },
 
@@ -1271,20 +1544,20 @@ function LerpMatrix(Matrix1, Matrix2, pow) {
     var scl1 = new THREE.Vector3();
     var scl2 = new THREE.Vector3();
     
-    var sx = new THREE.Vector3();
-    sx.set(Matrix1.elements[0], Matrix1.elements[1], Matrix1.elements[2]);
-    scl1.x = sx.length();
-    sx.set(Matrix1.elements[4], Matrix1.elements[5], Matrix1.elements[6]);
-    scl1.y = sx.length();
-    sx.set(Matrix1.elements[8], Matrix1.elements[9], Matrix1.elements[10]);
-    scl1.z = sx.length();
+    var s_tmp = new THREE.Vector3();
+    s_tmp.set(Matrix1.elements[0], Matrix1.elements[1], Matrix1.elements[2]);
+    scl1.x = s_tmp.length();
+    s_tmp.set(Matrix1.elements[4], Matrix1.elements[5], Matrix1.elements[6]);
+    scl1.y = s_tmp.length();
+    s_tmp.set(Matrix1.elements[8], Matrix1.elements[9], Matrix1.elements[10]);
+    scl1.z = s_tmp.length();
 
-    sx.set(Matrix2.elements[0], Matrix2.elements[1], Matrix2.elements[2]);
-    scl2.x = sx.length();
-    sx.set(Matrix2.elements[4], Matrix2.elements[5], Matrix2.elements[6]);
-    scl2.y = sx.length();
-    sx.set(Matrix2.elements[8], Matrix2.elements[9], Matrix2.elements[10]);
-    scl2.z = sx.length();
+    s_tmp.set(Matrix2.elements[0], Matrix2.elements[1], Matrix2.elements[2]);
+    scl2.x = s_tmp.length();
+    s_tmp.set(Matrix2.elements[4], Matrix2.elements[5], Matrix2.elements[6]);
+    scl2.y = s_tmp.length();
+    s_tmp.set(Matrix2.elements[8], Matrix2.elements[9], Matrix2.elements[10]);
+    scl2.z = s_tmp.length();
 
     scl1 = scl1.lerp(scl2, pow);
 
@@ -1296,8 +1569,19 @@ function LerpMatrix(Matrix1, Matrix2, pow) {
 
     q1.slerp(q2, pow);
 
+    //最終出力Matrixの作成
     tmpMx.compose(pos1, q1, scl1);
 
     return tmpMx;
 
 }
+
+
+function getHierarchy(_bone, arrayS) {
+    arrayS.unshift(_bone.name);
+    if (_bone.parent != null) {
+        getHierarchy(_bone.parent, arrayS);
+    }
+}
+
+
